@@ -5,21 +5,25 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from sklearn.model_selection import train_test_split
-from money_transformer import MoneyTransformer
 import re
 import random
 from datetime import datetime
+import tensorflow as tf
+from tensorflow import keras
+
 
 SEED = 13
 SCALER = 500000000
 NO_VALUE = -100
+UNKNOWN = "Unknown"
+
 np.random.seed(SEED)
 random.seed(SEED)
+tf.random.set_seed(SEED)
+
 
 filename = "data.csv"
 col_to_drop = ["Unnamed: 0", "ID", "Name", "Flag", "Club Logo", "Photo",
@@ -80,9 +84,9 @@ def generate_dataset():
 
     y = dataset["Position"]
     X = dataset.drop(columns=["Position"])
-    X["Club"].replace(-100, "Unknown", inplace=True)
-    X["Preferred Foot"].replace(-100, "Unknown", inplace=True)
-
+    X["Club"].replace(NO_VALUE, UNKNOWN, inplace=True)
+    X["Preferred Foot"].replace(NO_VALUE, UNKNOWN, inplace=True)
+    y.replace(NO_VALUE, UNKNOWN, inplace=True)
     cat_attribs = ["Nationality", "Club", "Preferred Foot"]
 
     c_transformer = ColumnTransformer([
@@ -90,15 +94,23 @@ def generate_dataset():
     ])
 
     X_prepared = c_transformer.fit_transform(X)
+    y_prepared = LabelEncoder().fit_transform(y)
     print("Dataset generated")
-    return X_prepared, y.values
+
+    return X_prepared, y_prepared
 
 
-def create_subset(X, y, val_size=0.15, test_size=0.15):
+def create_subset(X, y, val_size=0.1, test_size=0.1):
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, shuffle=True)
+        X, y, test_size=test_size, shuffle=True, stratify=y)
     X_train, X_valid, y_train, y_valid = train_test_split(
-        X_train, y_train, test_size=val_size, shuffle=True)
+        X_train, y_train, test_size=val_size, shuffle=True, stratify=y_train)
+
+    # scale dataset
+    scaler = StandardScaler(with_mean=False)
+    X_train = scaler.fit_transform(X_train)
+    X_valid = scaler.transform(X_valid)
+    X_test = scaler.transform(X_test)
 
     return X_train, X_valid, X_test, y_train, y_valid, y_test
 
@@ -106,3 +118,18 @@ def create_subset(X, y, val_size=0.15, test_size=0.15):
 if __name__ == "__main__":
     X, y = generate_dataset()
     X_train, X_valid, X_test, y_train, y_valid, y_test = create_subset(X, y)
+    print(X_train.shape)
+    print(len(np.unique(y)))
+    model = keras.models.Sequential([
+        keras.layers.Dense(1000, input_shape=(819, ), activation="relu"),
+        keras.layers.Dense(1000, activation="relu"),
+        keras.layers.Dense(1000, activation="relu"),
+        keras.layers.Dense(1000, activation="relu"),
+        keras.layers.Dense(28, activation="softmax")
+    ])
+    print(f"Model summary: \n{model.summary()}")
+    model.compile(optimizer="SGD", metrics=[
+                  "accuracy"], loss="sparse_categorical_crossentropy")
+
+    model.fit(X_train, y_train, epochs=100, validation_data=(X_valid, y_valid),
+              callbacks=[keras.callbacks.EarlyStopping(patience=10)])
