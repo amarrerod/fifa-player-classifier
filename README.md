@@ -1,3 +1,3 @@
-# Fifa Player Classifier
+# Fifa Player Regression
 
-Predict player's position from his attributes.
+Predict player's Overall from his attributes.
